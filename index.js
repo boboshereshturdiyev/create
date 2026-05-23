@@ -70,7 +70,7 @@ bot.onText(/\/start/, async (msg) => {
     }
 });
 
-// Excel faylni qabul qilish (SAVOL VA JAVOBLARNING CHALKASHISHI TUZATILDI)
+// Excel faylni qabul qilish (XATOLIK TO'LIQ TUZATILDI)
 bot.on('document', async (msg) => {
     const chatId = msg.chat.id;
     if (!(await isAdmin(chatId))) return;
@@ -86,21 +86,21 @@ bot.on('document', async (msg) => {
             fs.renameSync(rawFilePath, correctedFilePath);
             
             const workbook = xlsx.readFile(correctedFilePath);
-            const data = xlsx.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames], { header: 1 });
+            const data = xlsx.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
             activeQuizzes = []; 
 
             for (let row of data) {
-                // Agar qatorda savol yoki javoblar yetarli bo'lmasa, tashlab ketiladi
+                // Agar qatorda ma'lumot bo'lmasa yoki savol va javoblar yetarli bo'lmasa tashlab ketiladi
                 if (!row || row.length < 2 || row[0] === undefined || row[0] === null) continue; 
                 
-                // TUZATILISHI: Savol faqat A ustunidan (yani row[0] dan) olinadi, butun boshli row emas!
+                // XATOLIK TUZATILGAN JOYI: Savol faqatgina 1-ustun (A) elementidan, yani row[0] dan olinadi!
                 let question = String(row[0]).trim(); 
                 
-                // Javoblar esa qolgan ustunlardan olinadi
+                // Javoblar esa qolgan ustunlardan (B, C, D, E) ajratiladi
                 let rawOptions = row.slice(1);       
                 let cleanOptions = rawOptions.map(opt => opt !== undefined && opt !== null ? String(opt).trim() : "").filter(opt => opt !== "");
                 
-                if (cleanOptions.length < 2) continue; 
+                if (cleanOptions.length < 2) continue; // Kamida 2 ta javob varianti bo'lishi shart
 
                 let correctAnswerIndex = cleanOptions.findIndex(opt => opt.startsWith('*') || opt.endsWith('*'));
                 if (correctAnswerIndex !== -1) {
