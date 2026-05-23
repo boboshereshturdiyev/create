@@ -235,7 +235,6 @@ bot.on('message', async (msg) => {
                     }
 
                     if (i < activeQuizzes.length - 1 && isQuizRunning) {
-Koddan ehtiyotkorlik bilan foydalaning.
 await new Promise(resolve => {
 quizTimeoutId = setTimeout(resolve, waitBetweenPolls);
 });
@@ -295,7 +294,7 @@ bot.sendMessage(chatId, "🗑 Barcha barcha ma'lumotlar tozalandi.");
 }
 else if (text === "📢 Testni guruh/kanalga yuborish") {
 if (activeQuizzes.length === 0) return bot.sendMessage(chatId, "⚠️ Avval Excel yuklang!");
-bot.sendMessage(chatId, ⏱ Har bir savol necha soniya tursin? (Faqat raqam yuboring):, { reply_markup: { remove_keyboard: true } });
+bot.sendMessage(chatId, '⏱ Har bir savol necha soniya tursin? (Faqat raqam yuboring):', { reply_markup: { remove_keyboard: true } });
 adminState[chatId] = 'WAITING_FOR_QUIZ_TIME';
 }
 else if (text === "➕ Admin Qo'shish" && chatId === SUPER_ADMIN_ID) {
