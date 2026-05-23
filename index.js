@@ -1,3 +1,16 @@
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+    res.send('Bot muvaffaqiyatli ishlamoqda!');
+});
+
+app.listen(PORT, () => {
+    console.log(`Soxta veb-server ${PORT}-portda ishga tushdi.`);
+});
+
+
 const TelegramBot = require('node-telegram-bot-api');
 const xlsx = require('xlsx');
 const fs = require('fs');
