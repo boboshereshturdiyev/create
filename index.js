@@ -35,6 +35,9 @@ let activeQuizzes = [];
 let adminState = {}; 
 let currentExcelName = ""; // Yuklangan Excel faylining nomi
 
+// Testlarni tekshirish uchun xotira (poll_id: correct_option_id formatida saqlaydi)
+let pollCorrectAnswers = {}; 
+
 // Adminlikni tekshirish
 async function isAdmin(chatId) {
     if (chatId === SUPER_ADMIN_ID) return true;
@@ -70,7 +73,7 @@ bot.onText(/\/start/, async (msg) => {
     }
 });
 
-// Excel faylni qabul qilish (XATOLIK TO'LIQ TUZATILDI)
+// Excel faylni qabul qilish (TO'LIQ SAVOLLARNI O'QISH VARIANTI)
 bot.on('document', async (msg) => {
     const chatId = msg.chat.id;
     if (!(await isAdmin(chatId))) return;
@@ -86,26 +89,38 @@ bot.on('document', async (msg) => {
             fs.renameSync(rawFilePath, correctedFilePath);
             
             const workbook = xlsx.readFile(correctedFilePath);
-            const data = xlsx.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
+            const data = xlsx.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames], { header: 1 });
             activeQuizzes = []; 
 
             for (let row of data) {
-                // Agar qatorda ma'lumot bo'lmasa yoki savol va javoblar yetarli bo'lmasa tashlab ketiladi
-                if (!row || row.length < 2 || row[0] === undefined || row[0] === null) continue; 
+                if (!row || row.length === 0) continue; 
                 
-                // XATOLIK TUZATILGAN JOYI: Savol faqatgina 1-ustun (A) elementidan, yani row[0] dan olinadi!
-                let question = String(row[0]).trim(); 
+                // Ustundagi ma'lumotlarni tozalash (A, B, C, D, E...)
+                let cleanRow = row.map(cell => cell !== undefined && cell !== null ? String(cell).trim() : "");
                 
-                // Javoblar esa qolgan ustunlardan (B, C, D, E) ajratiladi
-                let rawOptions = row.slice(1);       
-                let cleanOptions = rawOptions.map(opt => opt !== undefined && opt !== null ? String(opt).trim() : "").filter(opt => opt !== "");
+                // Agar birinchi katak (Savol) bo'sh bo'lsa, o'tkazib yuboramiz
+                if (cleanRow[0] === "") continue; 
+                
+                let question = cleanRow[0]; // A ustun — Savol
+                let rawOptions = cleanRow.slice(1); // Qolgan hamma ustunlar variantlar
+                
+                // Faqat bo'sh bo'lmagan variantlarni qoldiramiz
+                let cleanOptions = rawOptions.filter(opt => opt !== "");
                 
                 if (cleanOptions.length < 2) continue; // Kamida 2 ta javob varianti bo'lishi shart
 
+                // To'g'ri javobni (* belgisini) aniqlash
                 let correctAnswerIndex = cleanOptions.findIndex(opt => opt.startsWith('*') || opt.endsWith('*'));
+                
                 if (correctAnswerIndex !== -1) {
+                    // Variantlar boshidagi yoki oxiridagi yulduzchalarni olib tashlaymiz
                     let finalOptions = cleanOptions.map(opt => opt.replace(/\*/g, '').trim());
-                    activeQuizzes.push({ question, options: finalOptions, correct_option_id: correctAnswerIndex });
+                    
+                    activeQuizzes.push({ 
+                        question: question, 
+                        options: finalOptions, 
+                        correct_option_id: correctAnswerIndex 
+                    });
                 }
             }
 
@@ -114,7 +129,7 @@ bot.on('document', async (msg) => {
             if (activeQuizzes.length === 0) {
                 bot.sendMessage(chatId, "⚠️ Mos keladigan savollar topilmadi! Yulduzcha (*) qo'yilganini tekshiring.", adminKeyboard);
             } else {
-                bot.sendMessage(chatId, "✅ Excel muvaffaqiyatli yuklandi!\n🎯 Jami savollar: " + activeQuizzes.length + " ta.", adminKeyboard);
+                bot.sendMessage(chatId, "✅ Excel muvaffaqiyatli yuklandi!\n🎯 Jami topilgan savollar: " + activeQuizzes.length + " ta.", adminKeyboard);
             }
         } catch (error) {
             bot.sendMessage(chatId, "❌ Excel faylni o'qishda xatolik.");
@@ -150,12 +165,12 @@ bot.on('message', async (msg) => {
             return;
         }
         
-        // --- VAQT CHEKLOVINI QABUL QILISH VA TESTNI BOSHLASH ---
+        // --- VAQT CHEKLOVINI QABUL QILISH ---
         if (state === 'WAITING_FOR_QUIZ_TIME') {
             let seconds = parseInt(text.replace('s', '').trim());
             
             if (isNaN(seconds) || seconds < 10 || seconds > 600) {
-                return bot.sendMessage(chatId, "⚠️ Noto'g'ri vaqt kiritildi. Telegram qoidasiga ko'ra vaqt kamida 10 soniya va ko'pi bilan 600 soniya bo'lishi shart.\n\nQaytadan urinib ko'ring:", { reply_markup: { remove_keyboard: true } });
+                return bot.sendMessage(chatId, "⚠️ Noto'g'ri vaqt kiritildi. Taymer kamida 10 soniya va ko'pi bilan 600 soniya bo'lishi shart.\n\nQaytadan kiriting:", { reply_markup: { remove_keyboard: true } });
             }
 
             bot.sendMessage(chatId, "🚀 Test sozlangan guruh/kanalga " + seconds + " soniyalik taymer bilan yuborilmoqda...", adminKeyboard);
@@ -166,23 +181,28 @@ bot.on('message', async (msg) => {
                 
                 const waitBetweenPolls = (seconds * 1000) + 2000; 
 
-                // Savollarni ketma-ketlikda yuborish loopi
+                // Savollarni ketma-satr yuborish
                 for (let i = 0; i < activeQuizzes.length; i++) {
                     const quiz = activeQuizzes[i];
                     
-                    await bot.sendPoll(TARGET_CHAT_ID, "[" + (i + 1) + "/" + activeQuizzes.length + "] " + quiz.question, quiz.options, {
+                    const sentPollMessage = await bot.sendPoll(TARGET_CHAT_ID, "[" + (i + 1) + "/" + activeQuizzes.length + "] " + quiz.question, quiz.options, {
                         type: 'quiz',
                         correct_option_id: quiz.correct_option_id,
                         is_anonymous: false,
                         open_period: seconds 
                     });
 
+                    // TUZATILISHI: Har bir yuborilgan testning ID raqamini to'g'ri javob indeksi bilan xotiraga saqlaymiz
+                    if (sentPollMessage && sentPollMessage.poll) {
+                        pollCorrectAnswers[sentPollMessage.poll.id] = quiz.correct_option_id;
+                    }
+
                     if (i < activeQuizzes.length - 1) {
                         await new Promise(r => setTimeout(r, waitBetweenPolls));
                     }
                 }
                 
-                bot.sendMessage(chatId, "✅ Barcha testlar muvaffaqiyatli yakunlandi va guruhga jo'natildi!", adminKeyboard);
+                bot.sendMessage(chatId, "✅ Barcha testlar yakunlandi!", adminKeyboard);
             } catch (err) {
                 bot.sendMessage(chatId, "❌ Xato yuz berdi: " + err.message, adminKeyboard);
             }
@@ -201,27 +221,27 @@ bot.on('message', async (msg) => {
             });
             bot.sendMessage(chatId, report);
         } catch (err) {
-            bot.sendMessage(chatId, "❌ Natijalarni yuklashda xatolik yuz berdi.");
+            bot.sendMessage(chatId, "❌ Natijalarni yuklashda xatolik.");
         }
     }
     else if (text === "🧹 Ma'lumotlarni tozalash") {
         await pool.query('TRUNCATE TABLE results');
         activeQuizzes = [];
         currentExcelName = "";
-        bot.sendMessage(chatId, "🗑 Hamma ma'lumotlar tozalandi.");
-    }
-    
-    else if (text === "📢 Testni guruh/kanalga yuborish") {
-        if (activeQuizzes.length === 0) return bot.sendMessage(chatId, "⚠️ Avval Excel yuklang!");
-        
-        bot.sendMessage(chatId, `⏱ Har bir savol necha soniya tursin? (Kamida 10 soniya).\n\nMasalan: 15, 30 yoki 45 deb faqat raqam o'zini yuboring:`, { reply_markup: { remove_keyboard: true } });
-        adminState[chatId] = 'WAITING_FOR_QUIZ_TIME';
-    }
-    else if (text === "➕ Admin Qo'shish" && chatId === SUPER_ADMIN_ID) {
-        bot.sendMessage(chatId, "👤 ID kiriting:", { reply_markup: { remove_keyboard: true } });
-        adminState[chatId] = 'WAITING_FOR_ADD_ADMIN';
-    }
-    else if (text === "➖ Admin O'chirish" && chatId === SUPER_ADMIN_ID) {
+        pollCorrectAnswers = {}; // To'g'ri javoblar xotirasini tozalash
+
+bot.sendMessage(chatId, "🗑 Hamma ma'lumotlar tozalandi.");
+}
+else if (text === "📢 Testni guruh/kanalga yuborish") {
+if (activeQuizzes.length === 0) return bot.sendMessage(chatId, "⚠️ Avval Excel yuklang!");
+bot.sendMessage(chatId, "⏱ Har bir savol necha soniya tursin? (Kamida 10 soniya).\n\nFaqat raqam o'zini yuboring (Masalan: 15, 30):", { reply_markup: { remove_keyboard: true } });
+adminState[chatId] = 'WAITING_FOR_QUIZ_TIME';
+}
+else if (text === "➕ Admin Qo'shish" && chatId === SUPER_ADMIN_ID) {
+bot.sendMessage(chatId, "👤 ID kiriting:", { reply_markup: { remove_keyboard: true } });
+adminState[chatId] = 'WAITING_FOR_ADD_ADMIN';
+}
+else if (text === "➖ Admin O'chirish" && chatId === SUPER_ADMIN_ID) {
 bot.sendMessage(chatId, "🗑 ID kiriting:", { reply_markup: { remove_keyboard: true } });
 adminState[chatId] = 'WAITING_FOR_REMOVE_ADMIN';
 }
@@ -234,15 +254,25 @@ txt += (i + 2) + ". ID: " + row.telegram_id + " (Admin)\n";
 });
 bot.sendMessage(chatId, txt);
 } catch (err) {
-bot.sendMessage(chatId, "❌ Adminlar ro'yxatini yuklashda xatolik.");
+bot.sendMessage(chatId, "❌ Adminlar ro'yxatida xatolik.");
 }
 }
 });
-// Javoblar hisoblagichi
+// Javoblar hisoblagichi (XATOLIK TO'LIQ TUZATILGAN JOYI)
 bot.on('poll_answer', async (answer) => {
 const userId = answer.user.id;
+const pollId = answer.poll_id;
+const userChosenOption = answer.option_ids[0]; // Foydalanuvchi tanlagan variant indeksi
+// Xotiradan ushbu testning haqiqiy to'g'ri javobini qidiramiz
+const realCorrectOptionId = pollCorrectAnswers[pollId];
+// Agar foydalanuvchi bosgan indeks to'g'ri indeksga teng bo'lsa, BALL QO'SHILADI. Noto'g'ri bo'lsa, kod to'xtaydi!
+if (realCorrectOptionId === undefined || userChosenOption !== realCorrectOptionId) {
+return; // Noto'g'ri javob bo'lsa, ball qo'shmasdan funksiyadan chiqib ketadi
+}
 const fullName = (answer.user.first_name || "") + (answer.user.username ? " (@" + answer.user.username + ")" : "");
 try {
 await pool.query('INSERT INTO results (id, name, correct_count) VALUES ($1, $2, 1) ON CONFLICT (id) DO UPDATE SET name = $2, correct_count = results.correct_count + 1', [userId, fullName]);
-} catch (err) { console.error(err); }
+} catch (err) {
+console.error(err);
+}
 });
