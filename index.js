@@ -35,6 +35,11 @@ let activeQuizzes = [];
 let adminState = {}; 
 let currentExcelName = ""; // Yuklangan Excel faylining nomi
 
+// HTML maxsus belgilarini xavfsiz qilish funksiyasi
+function escapeHTML(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 // Adminlikni tekshirish
 async function isAdmin(chatId) {
     if (chatId === SUPER_ADMIN_ID) return true;
@@ -86,12 +91,12 @@ bot.on('document', async (msg) => {
             fs.renameSync(rawFilePath, correctedFilePath);
             
             const workbook = xlsx.readFile(correctedFilePath);
-            const data = xlsx.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
+            const data = xlsx.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames], { header: 1 });
             activeQuizzes = []; 
 
             for (let row of data) {
                 if (!row || row.length < 2) continue; 
-                let question = String(row[0]).trim(); 
+                let question = String(row).trim(); 
                 let rawOptions = row.slice(1);       
                 let cleanOptions = rawOptions.map(opt => opt !== undefined && opt !== null ? String(opt).trim() : "").filter(opt => opt !== "");
                 if (cleanOptions.length < 2) continue; 
@@ -149,18 +154,19 @@ bot.on('message', async (msg) => {
             let seconds = parseInt(text.replace('s', '').trim());
             
             if (isNaN(seconds) || seconds < 10 || seconds > 600) {
-                return bot.sendMessage(chatId, "⚠️ Noto'g'ri vaqt kiritildi. Telegram qoidasiga ko'ra vaqt kamida 10 soniya va ko'pi bilan 600 soniya (10 daqiqa) bo'lishi shart.\n\nQaytadan urinib ko'ring:", { reply_markup: { remove_keyboard: true } });
+                return bot.sendMessage(chatId, "⚠️ Noto'g'ri vaqt kiritildi. Telegram qoidasiga ko'ra vaqt kamida 10 soniya va ko'pi bilan 600 soniya bo'lishi shart.\n\nQaytadan urinib ko'ring:", { reply_markup: { remove_keyboard: true } });
             }
 
-            bot.sendMessage(chatId, `🚀 Test sozlangan guruh/kanalga ${seconds} soniyalik taymer bilan ketma-ket yuborilmoqda...`, adminKeyboard);
+            bot.sendMessage(chatId, "🚀 Test sozlangan guruh/kanalga " + seconds + " soniyalik taymer bilan yuborilmoqda...", adminKeyboard);
             
             try {
-                // 1. Test boshlanishini e'lon qilish (Excel fayli nomi bilan)
-                const startMessage = `🔔 **"${currentExcelName}"** nomli test boshlanmoqda!\n\n🎯 Jami savollar soni: ${activeQuizzes.length} ta\n⏱ Har bir savol uchun vaqt: ${seconds} soniya.\n\nMuvaffaqiyatlar tilaymiz!`;
-                await bot.sendMessage(TARGET_CHAT_ID, startMessage, { parse_mode: 'Markdown' });
+                // HTML format xavfsizligi ta'minlandi
+                const safeExcelName = escapeHTML(currentExcelName);
                 
-                // Telegram spam blokiga tushmaslik va testlar ketma-ket taymer tugagandan keyin chiqishi uchun kutish vaqti
-                // (Har bir savol tugagandan keyin 2 soniya dam olib keyingisiga o'tadi)
+                // 1. Test boshlanishini e'lon qilish (HTML formatida)
+                const startMessage = `🔔 <b>"${safeExcelName}"</b> nomli test boshlanmoqda!\n\n🎯 Jami savollar soni: ${activeQuizzes.length} ta\n⏱ Har bir savol uchun vaqt: ${seconds} soniya.\n\nMuvaffaqiyatlar tilaymiz!`;
+                await bot.sendMessage(TARGET_CHAT_ID, startMessage, { parse_mode: 'HTML' });
+                
                 const waitBetweenPolls = (seconds * 1000) + 2000; 
 
                 // 2. Savollarni ketma-ketlikda yuborish loopi
@@ -171,10 +177,9 @@ bot.on('message', async (msg) => {
                         type: 'quiz',
                         correct_option_id: quiz.correct_option_id,
                         is_anonymous: false,
-                        open_period: seconds // Har bir test uchun belgilangan soniyadagi vaqt cheklovi
+                        open_period: seconds 
                     });
 
-                    // Agar bu oxirgi savol bo'lmasa, keyingi savolni yuborishdan oldin taymer tugashini kutadi
                     if (i < activeQuizzes.length - 1) {
                         await new Promise(r => setTimeout(r, waitBetweenPolls));
                     }
@@ -204,11 +209,10 @@ bot.on('message', async (msg) => {
         bot.sendMessage(chatId, "🗑 Hamma ma'lumotlar tozalandi.");
     }
     
-    // --- VAQT CHEKLOVINI SO'RASH BOSQICHI ---
     else if (text === "📢 Testni guruh/kanalga yuborish") {
         if (activeQuizzes.length === 0) return bot.sendMessage(chatId, "⚠️ Avval Excel yuklang!");
         
-        bot.sendMessage(chatId, `⏱ Har bir savol necha soniya tursin? (Telegram qoidasi bo'yicha kamida 10 soniya bo'lishi kerak).\n\nMasalan: 15, 30 yoki 45 deb faqat raqam o'zini yuboring:`, { reply_markup: { remove_keyboard: true } });
+        bot.sendMessage(chatId, `⏱ Har bir savol necha soniya tursin? (Kamida 10 soniya).\n\nMasalan: 15, 30 yoki 45 deb faqat raqam o'zini yuboring:`, { reply_markup: { remove_keyboard: true } });
         adminState[chatId] = 'WAITING_FOR_QUIZ_TIME';
     }
     else if (text === "➕ Admin Qo'shish" && chatId === SUPER_ADMIN_ID) {
@@ -217,10 +221,10 @@ bot.on('message', async (msg) => {
     }
     else if (text === "➖ Admin O'chirish" && chatId === SUPER_ADMIN_ID) {
         bot.sendMessage(chatId, "🗑 ID kiriting:", { reply_markup: { remove_keyboard: true } });
-adminState[chatId] = 'WAITING_FOR_REMOVE_ADMIN';
-}
-else if (text === "👥 Adminlar Ro'yxati") {
-const res = await pool.query('SELECT * FROM admins');
+        adminState[chatId] = 'WAITING_FOR_REMOVE_ADMIN';
+    }
+    else if (text === "👥 Adminlar Ro'yxati") {
+        const res = await pool.query('SELECT * FROM admins');
 let txt = "👥 Adminlar ro'yxati:\n\n1. ID: " + SUPER_ADMIN_ID + " 👑\n";
 res.rows.forEach((row, i) => txt += (i + 2) + ". ID: " + row.telegram_id + " 🛠\n");
 bot.sendMessage(chatId, txt);
