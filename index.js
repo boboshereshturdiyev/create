@@ -35,11 +35,6 @@ let activeQuizzes = [];
 let adminState = {}; 
 let currentExcelName = ""; // Yuklangan Excel faylining nomi
 
-// HTML maxsus belgilarini xavfsiz qilish funksiyasi
-function escapeHTML(str) {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
 // Adminlikni tekshirish
 async function isAdmin(chatId) {
     if (chatId === SUPER_ADMIN_ID) return true;
@@ -160,20 +155,17 @@ bot.on('message', async (msg) => {
             bot.sendMessage(chatId, "🚀 Test sozlangan guruh/kanalga " + seconds + " soniyalik taymer bilan yuborilmoqda...", adminKeyboard);
             
             try {
-                // HTML format xavfsizligi ta'minlandi
-                const safeExcelName = escapeHTML(currentExcelName);
-                
-                // 1. Test boshlanishini e'lon qilish (HTML formatida)
-                const startMessage = `🔔 <b>"${safeExcelName}"</b> nomli test boshlanmoqda!\n\n🎯 Jami savollar soni: ${activeQuizzes.length} ta\n⏱ Har bir savol uchun vaqt: ${seconds} soniya.\n\nMuvaffaqiyatlar tilaymiz!`;
-                await bot.sendMessage(TARGET_CHAT_ID, startMessage, { parse_mode: 'HTML' });
+                // Hech qanday HTML/Markdown xatosi chiqmasligi uchun parse_mode olib tashlandi va oddiy matnga o'tkazildi
+                const startMessage = "🔔 \"" + currentExcelName + "\" nomli test boshlanmoqda!\n\n🎯 Jami savollar soni: " + activeQuizzes.length + " ta\n⏱ Har bir savol uchun vaqt: " + seconds + " soniya.\n\nMuvaffaqiyatlar tilaymiz!";
+                await bot.sendMessage(TARGET_CHAT_ID, startMessage);
                 
                 const waitBetweenPolls = (seconds * 1000) + 2000; 
 
-                // 2. Savollarni ketma-ketlikda yuborish loopi
+                // Savollarni ketma-ketlikda yuborish loopi
                 for (let i = 0; i < activeQuizzes.length; i++) {
                     const quiz = activeQuizzes[i];
                     
-                    await bot.sendPoll(TARGET_CHAT_ID, `[${i + 1}/${activeQuizzes.length}] ${quiz.question}`, quiz.options, {
+                    await bot.sendPoll(TARGET_CHAT_ID, "[" + (i + 1) + "/" + activeQuizzes.length + "] " + quiz.question, quiz.options, {
                         type: 'quiz',
                         correct_option_id: quiz.correct_option_id,
                         is_anonymous: false,
@@ -193,14 +185,20 @@ bot.on('message', async (msg) => {
         }
     }
 
+    // Natijalarni tahlil qilish (Xatolik tuzatilgan qism — parse_mode butunlay olib tashlandi)
     if (text === "📊 Natijalarni tahlil qilish") {
-        const res = await pool.query('SELECT * FROM results ORDER BY correct_count DESC');
-        if (res.rows.length === 0) return bot.sendMessage(chatId, "📭 Natijalar yo'q.");
-        let report = "📋 Foydalanuvchilar natijalari:\n\n";
-        res.rows.forEach((user, i) => {
-            report += (i + 1) + ". 👤 " + user.name + " — 🏆 Ball: " + (user.correct_count * 10) + "\n";
-        });
-        bot.sendMessage(chatId, report);
+        try {
+            const res = await pool.query('SELECT * FROM results ORDER BY correct_count DESC');
+            if (res.rows.length === 0) return bot.sendMessage(chatId, "📭 Natijalar yo'q.");
+            
+            let report = "📋 Foydalanuvchilar natijalari:\n\n";
+            res.rows.forEach((user, i) => {
+                report += (i + 1) + ". " + user.name + " — Ball: " + (user.correct_count * 10) + "\n";
+            });
+            bot.sendMessage(chatId, report); // parse_mode yo'q, xavfsiz oddiy matn
+        } catch (err) {
+            bot.sendMessage(chatId, "❌ Natijalarni yuklashda xatolik yuz berdi.");
+        }
     }
     else if (text === "🧹 Ma'lumotlarni tozalash") {
         await pool.query('TRUNCATE TABLE results');
@@ -223,11 +221,18 @@ bot.on('message', async (msg) => {
         bot.sendMessage(chatId, "🗑 ID kiriting:", { reply_markup: { remove_keyboard: true } });
         adminState[chatId] = 'WAITING_FOR_REMOVE_ADMIN';
     }
-    else if (text === "👥 Adminlar Ro'yxati") {
-        const res = await pool.query('SELECT * FROM admins');
-let txt = "👥 Adminlar ro'yxati:\n\n1. ID: " + SUPER_ADMIN_ID + " 👑\n";
-res.rows.forEach((row, i) => txt += (i + 2) + ". ID: " + row.telegram_id + " 🛠\n");
-bot.sendMessage(chatId, txt);
+    // Adminlar ro'yxati (Xatolik tuzatilgan qism — parse_mode olib tashlandi)
+else if (text === "👥 Adminlar Ro'yxati") {
+try {
+const res = await pool.query('SELECT * FROM admins');
+let txt = "👥 Adminlar ro'yxati:\n\n1. ID: " + SUPER_ADMIN_ID + " (Bosh Admin)\n";
+res.rows.forEach((row, i) => {
+txt += (i + 2) + ". ID: " + row.telegram_id + " (Admin)\n";
+});
+bot.sendMessage(chatId, txt); // parse_mode yo'q, xavfsiz oddiy matn
+} catch (err) {
+bot.sendMessage(chatId, "❌ Adminlar ro'yxatini yuklashda xatolik.");
+}
 }
 });
 // Javoblar hisoblagichi
